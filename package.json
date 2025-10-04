@@ -1,0 +1,25 @@
+{
+  "name": "satisfyingballs",
+  "version": "1.0.0",
+  "description": "Audio-driven ball physics simulation",
+  "main": "script.js",
+  "scripts": {
+    "dev": "http-server . -p 3000 -c-1 --cors",
+    "start": "http-server . -p 3000 -c-1 --cors",
+    "build": "echo 'No build step required for vanilla JS project'",
+    "test": "echo 'No tests specified'"
+  },
+  "keywords": [
+    "audio",
+    "physics",
+    "simulation",
+    "balls",
+    "music",
+    "visualization"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}
