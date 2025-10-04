@@ -433,6 +433,9 @@ class SatisfyingBalls {
     }
     
     handleCollisions() {
+        // Don't process collisions if maze doesn't exist yet
+        if (!this.maze || this.maze.length === 0) return;
+        
         const cellSize = this.world.cellSize;
         const gridX = Math.floor(this.ball.x / cellSize);
         const gridY = Math.floor(this.ball.y / cellSize);
@@ -444,7 +447,8 @@ class SatisfyingBalls {
                 const checkY = gridY + dy;
                 
                 if (checkX >= 0 && checkX < this.world.width &&
-                    checkY >= 0 && checkY < this.world.height) {
+                    checkY >= 0 && checkY < this.world.height &&
+                    this.maze[checkY]) {
                     
                     if (this.maze[checkY][checkX] === 1) {
                         const wallLeft = checkX * cellSize;
@@ -558,15 +562,17 @@ class SatisfyingBalls {
         const endY = Math.min(this.world.height, Math.ceil(visibleBottom / cellSize));
         
         // Draw maze (only visible cells)
-        ctx.fillStyle = '#1a1a2e';
-        ctx.strokeStyle = '#2a2a3e';
-        ctx.lineWidth = 1;
-        
-        for (let y = startY; y < endY; y++) {
-            for (let x = startX; x < endX; x++) {
-                if (this.maze[y][x] === 1) {
-                    ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
-                    ctx.strokeRect(x * cellSize, y * cellSize, cellSize, cellSize);
+        if (this.maze && this.maze.length > 0) {
+            ctx.fillStyle = '#1a1a2e';
+            ctx.strokeStyle = '#2a2a3e';
+            ctx.lineWidth = 1;
+            
+            for (let y = startY; y < endY; y++) {
+                for (let x = startX; x < endX; x++) {
+                    if (this.maze[y] && this.maze[y][x] === 1) {
+                        ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+                        ctx.strokeRect(x * cellSize, y * cellSize, cellSize, cellSize);
+                    }
                 }
             }
         }
