@@ -1,349 +1,269 @@
-// SatisfyingBalls - Audio-Driven Ball Physics Simulation
+// SatisfyingBalls - Complete Overhaul
+// Camera-focused, procedural maze, satisfying physics
+
 class SatisfyingBalls {
     constructor() {
+        // Audio
         this.audioContext = null;
         this.audioBuffer = null;
         this.source = null;
         this.analyser = null;
         this.isPlaying = false;
+        this.audioFileName = '';
+        
+        // Beat detection
         this.beatHistory = [];
         this.beatThreshold = 1.3;
-        this.sensitivity = 1.0;
-
-        // Canvas and physics properties
+        this.lastBeatTime = 0;
+        this.beatCooldown = 100; // ms between beats
+        
+        // Canvas & rendering
         this.canvas = document.getElementById('simulation-canvas');
         this.ctx = this.canvas.getContext('2d');
+        
+        // Camera system
+        this.camera = {
+            x: 0,
+            y: 0,
+            zoom: 1.5,
+            smoothing: 0.08 // Lower = smoother, slower follow
+        };
+        
+        // World & maze
+        this.world = {
+            width: 50,
+            height: 50,
+            cellSize: 40
+        };
         this.maze = [];
-        this.particles = []; // For visual effects
-        this.beatParticles = []; // Particles that spawn on beats
+        
+        // Ball
         this.ball = {
-            x: 50,
-            y: 50,
+            x: 100,
+            y: 100,
             vx: 0,
             vy: 0,
-            radius: 12,
-            color: '#ff6b6b',
-            trail: [], // Ball trail for satisfying effect
+            radius: 15,
+            color: '#4ecdc4',
+            trail: [],
+            trailLength: 15,
             glowIntensity: 0
         };
-        this.colors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#f9ca24', '#f0932b', '#eb4d4b', '#6c5ce7'];
-
+        
+        // Settings
+        this.settings = {
+            beatSensitivity: 1.2,
+            physicsSpeed: 0.6,
+            cameraZoom: 1.5,
+            ballSize: 15,
+            trailLength: 15
+        };
+        
+        // Colors
+        this.colors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#f9ca24', '#f0932b', '#eb4d4b', '#6c5ce7', '#a29bfe'];
+        this.particles = [];
+        
         this.init();
     }
-
+    
     init() {
         this.setupEventListeners();
-        this.generateMaze();
         this.setupCanvas();
         this.animate();
     }
-
-    createBeatParticles() {
-        // Create particles that shoot out from the ball on beats
-        for (let i = 0; i < 8; i++) {
-            const angle = (i / 8) * Math.PI * 2;
-            const speed = 3 + Math.random() * 4;
-            this.beatParticles.push({
-                x: this.ball.x,
-                y: this.ball.y,
-                vx: Math.cos(angle) * speed,
-                vy: Math.sin(angle) * speed,
-                life: 1,
-                color: this.ball.color,
-                size: 2 + Math.random() * 3
-            });
-        }
-    }
-
-    updateParticles() {
-        // Update beat particles
-        this.beatParticles = this.beatParticles.filter(particle => {
-            particle.x += particle.vx;
-            particle.y += particle.vy;
-            particle.vy += 0.1; // gravity
-            particle.life -= 0.02;
-            particle.vx *= 0.98; // air resistance
-
-            return particle.life > 0;
-        });
-    }
-
+    
     setupEventListeners() {
-        // Demo button
-        document.getElementById('play-demo').addEventListener('click', () => {
-            this.loadDemoAudio();
+        // Landing page - file upload
+        const uploadZone = document.getElementById('upload-zone');
+        const fileInput = document.getElementById('audio-file');
+        const browseBtn = document.getElementById('browse-btn');
+        
+        // Click to browse
+        browseBtn.addEventListener('click', () => fileInput.click());
+        uploadZone.addEventListener('click', () => fileInput.click());
+        
+        // Drag and drop
+        uploadZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadZone.classList.add('dragover');
         });
-
-        // YouTube URL input
-        document.getElementById('load-youtube').addEventListener('click', () => {
-            const url = document.getElementById('youtube-url').value;
-            if (url) {
-                this.loadYouTubeAudio(url);
+        
+        uploadZone.addEventListener('dragleave', () => {
+            uploadZone.classList.remove('dragover');
+        });
+        
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZone.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file && file.type.startsWith('audio/')) {
+                this.loadAudioFile(file);
             }
         });
-
-        // File upload
-        document.getElementById('load-file').addEventListener('click', () => {
-            const file = document.getElementById('audio-file').files[0];
+        
+        // File input change
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
             if (file) {
                 this.loadAudioFile(file);
             }
         });
-
-        // Audio controls
+        
+        // Game view controls
         document.getElementById('play-pause').addEventListener('click', () => {
             this.togglePlayback();
         });
-
-        document.getElementById('restart').addEventListener('click', () => {
-            this.restartAudio();
+        
+        document.getElementById('back-btn').addEventListener('click', () => {
+            this.backToLanding();
         });
-
-        document.getElementById('volume').addEventListener('input', (e) => {
-            if (this.source) {
-                this.source.volume = e.target.value;
-            }
+        
+        document.getElementById('settings-btn').addEventListener('click', () => {
+            this.toggleSettings();
         });
-
-        // Simulation controls
-        document.getElementById('generate-maze').addEventListener('click', () => {
+        
+        document.getElementById('close-settings').addEventListener('click', () => {
+            this.toggleSettings();
+        });
+        
+        document.getElementById('reset-maze').addEventListener('click', () => {
             this.generateMaze();
-        });
-
-        document.getElementById('reset-ball').addEventListener('click', () => {
             this.resetBall();
         });
-
-        document.getElementById('sensitivity').addEventListener('input', (e) => {
-            this.sensitivity = parseFloat(e.target.value);
-            this.beatThreshold = 1.3 * this.sensitivity;
+        
+        // Settings sliders
+        this.setupSettingsListeners();
+    }
+    
+    setupSettingsListeners() {
+        const sliders = [
+            { id: 'zoom-slider', value: 'zoom-value', suffix: 'x', prop: 'cameraZoom' },
+            { id: 'size-slider', value: 'size-value', suffix: 'px', prop: 'ballSize' },
+            { id: 'sensitivity-slider', value: 'sensitivity-value', suffix: 'x', prop: 'beatSensitivity' },
+            { id: 'speed-slider', value: 'speed-value', suffix: 'x', prop: 'physicsSpeed' },
+            { id: 'trail-slider', value: 'trail-value', suffix: '', prop: 'trailLength' }
+        ];
+        
+        sliders.forEach(slider => {
+            const input = document.getElementById(slider.id);
+            const display = document.getElementById(slider.value);
+            
+            input.addEventListener('input', (e) => {
+                const val = parseFloat(e.target.value);
+                display.textContent = val + slider.suffix;
+                this.settings[slider.prop] = val;
+                this.applySettings();
+            });
         });
     }
-
-    async loadDemoAudio() {
-        const button = document.getElementById('play-demo');
-        button.textContent = '🎵 Loading Demo...';
-        button.classList.add('loading');
-
-        try {
-            await this.initializeAudioContext();
-            this.createTestAudio();
-
-            button.textContent = '✅ Demo Ready!';
-            document.getElementById('audio-controls').style.display = 'flex';
-
-            setTimeout(() => {
-                button.textContent = '🎵 Play Demo Audio';
-                button.classList.remove('loading');
-            }, 2000);
-
-        } catch (error) {
-            console.error('Error loading demo audio:', error);
-            button.textContent = '❌ Error - Try Again';
-            button.classList.remove('loading');
-        }
+    
+    applySettings() {
+        this.camera.zoom = this.settings.cameraZoom;
+        this.ball.radius = this.settings.ballSize;
+        this.ball.trailLength = this.settings.trailLength;
+        this.beatThreshold = 1.3 * this.settings.beatSensitivity;
     }
-
-    async loadYouTubeAudio(url) {
-        const button = document.getElementById('load-youtube');
-        button.textContent = 'Loading...';
-        button.classList.add('loading');
-
-        try {
-            // For now, we'll simulate loading audio from YouTube
-            // In a real implementation, you'd need a backend service to extract audio
-            console.log('Loading audio from YouTube:', url);
-
-            // Create a test audio context and buffer
-            await this.initializeAudioContext();
-
-            // For demo purposes, create a simple test audio
-            this.createTestAudio();
-
-            button.textContent = 'Audio Loaded!';
-            document.getElementById('audio-controls').style.display = 'flex';
-
-            setTimeout(() => {
-                button.textContent = 'Load Audio';
-                button.classList.remove('loading');
-            }, 2000);
-
-        } catch (error) {
-            console.error('Error loading YouTube audio:', error);
-            button.textContent = 'Error - Try Again';
-            button.classList.remove('loading');
-        }
+    
+    setupCanvas() {
+        // Make canvas fullscreen
+        this.resizeCanvas();
+        window.addEventListener('resize', () => this.resizeCanvas());
     }
-
+    
+    resizeCanvas() {
+        this.canvas.width = window.innerWidth;
+        this.canvas.height = window.innerHeight;
+    }
+    
     async loadAudioFile(file) {
-        const button = document.getElementById('load-file');
-        button.textContent = 'Loading...';
-        button.classList.add('loading');
-
+        this.audioFileName = file.name;
+        
+        // Show loading state
+        const uploadZone = document.getElementById('upload-zone');
+        uploadZone.innerHTML = '<div class="loading-spinner"></div><p>Loading audio...</p>';
+        
         try {
             await this.initializeAudioContext();
-
+            
             const arrayBuffer = await file.arrayBuffer();
             this.audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
-
-            button.textContent = 'Audio Loaded!';
-            document.getElementById('audio-controls').style.display = 'flex';
-
-            setTimeout(() => {
-                button.textContent = 'Load File';
-                button.classList.remove('loading');
-            }, 2000);
-
+            
+            // Generate maze for this audio
+            this.generateMaze();
+            this.resetBall();
+            
+            // Transition to game view
+            this.showGameView();
+            
         } catch (error) {
-            console.error('Error loading audio file:', error);
-            button.textContent = 'Error - Try Again';
-            button.classList.remove('loading');
+            console.error('Error loading audio:', error);
+            uploadZone.innerHTML = `
+                <div class="upload-icon">❌</div>
+                <h2>Error loading audio</h2>
+                <p>${error.message}</p>
+                <button onclick="location.reload()">Try Again</button>
+            `;
         }
     }
-
+    
     async initializeAudioContext() {
         if (!this.audioContext) {
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-
-            // Create analyser for frequency analysis
+            
             this.analyser = this.audioContext.createAnalyser();
             this.analyser.fftSize = 2048;
-            this.analyser.smoothingTimeConstant = 0.8;
-
-            // Connect analyser to destination
+            this.analyser.smoothingTimeConstant = 0.7;
+            
             this.analyser.connect(this.audioContext.destination);
         }
     }
-
-    createTestAudio() {
-        // Create a more satisfying test audio with dynamic beats and rhythm
-        const sampleRate = this.audioContext.sampleRate;
-        const duration = 15; // 15 seconds
-        const frameCount = sampleRate * duration;
-
-        this.audioBuffer = this.audioContext.createBuffer(2, frameCount, sampleRate);
-
-        // Create different sections with varying intensity
-        const sections = [
-            { start: 0, end: 5, bpm: 120, intensity: 0.7 },
-            { start: 5, end: 10, bpm: 140, intensity: 1.0 },
-            { start: 10, end: 15, bpm: 160, intensity: 0.9 }
-        ];
-
-        for (let channel = 0; channel < this.audioBuffer.numberOfChannels; channel++) {
-            const channelData = this.audioBuffer.getChannelData(channel);
-
-            for (let i = 0; i < frameCount; i++) {
-                const time = i / sampleRate;
-                let sample = 0;
-
-                // Find current section
-                const currentSection = sections.find(s => time >= s.start && time < s.end) || sections[0];
-
-                // Calculate beat timing
-                const beatInterval = 60 / currentSection.bpm;
-                const beatPosition = (time - currentSection.start) % beatInterval;
-                const beatStrength = Math.max(0, 1 - (beatPosition / (beatInterval * 0.1)));
-
-                // Main beat (kick drum simulation)
-                if (beatStrength > 0.1) {
-                    const kickFreq = 60 + (beatStrength * 40); // Frequency sweep
-                    sample += Math.sin(time * kickFreq * Math.PI * 2) * beatStrength * 0.4 * currentSection.intensity;
-                }
-
-                // Snare on 2nd and 4th beats
-                const measurePosition = ((time - currentSection.start) % (beatInterval * 4)) / (beatInterval * 4);
-                if (measurePosition > 0.45 && measurePosition < 0.55) {
-                    const noise = (Math.random() - 0.5) * 2;
-                    sample += noise * 0.2 * currentSection.intensity;
-                }
-
-                // Bass line
-                const bassNote = [55, 65, 73, 82][Math.floor(time * 2) % 4];
-                sample += Math.sin(time * bassNote * Math.PI * 2) * 0.15 * currentSection.intensity;
-
-                // Melody
-                const melodyNotes = [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25];
-                const melodyIndex = Math.floor(time * 3) % melodyNotes.length;
-                if (Math.random() > 0.7) { // Sparse melody
-                    sample += Math.sin(time * melodyNotes[melodyIndex] * Math.PI * 2) * 0.1 * currentSection.intensity;
-                }
-
-                // Add some reverb-like effect
-                if (i > sampleRate * 0.01) {
-                    sample += channelData[i - Math.floor(sampleRate * 0.01)] * 0.1;
-                }
-
-                // Prevent clipping
-                sample = Math.max(-0.8, Math.min(0.8, sample));
-
-                channelData[i] = sample;
-            }
-        }
+    
+    showGameView() {
+        document.getElementById('landing-page').classList.add('hidden');
+        document.getElementById('game-view').classList.remove('hidden');
+        document.getElementById('audio-title').textContent = this.audioFileName;
+        
+        // Auto-play
+        setTimeout(() => this.playAudio(), 500);
     }
-
-    togglePlayback() {
-        const button = document.getElementById('play-pause');
-
-        if (this.isPlaying) {
-            this.stopAudio();
-            button.textContent = '▶️ Play';
-        } else {
-            this.playAudio();
-            button.textContent = '⏸️ Pause';
-        }
-    }
-
-    playAudio() {
-        if (!this.audioBuffer) return;
-
-        this.source = this.audioContext.createBufferSource();
-        this.source.buffer = this.audioBuffer;
-        this.source.connect(this.analyser);
-        this.source.start(0);
-        this.isPlaying = true;
-    }
-
-    stopAudio() {
-        if (this.source) {
-            this.source.stop();
-            this.source = null;
-        }
-        this.isPlaying = false;
-    }
-
-    restartAudio() {
+    
+    backToLanding() {
         this.stopAudio();
-        this.playAudio();
-        document.getElementById('play-pause').textContent = '⏸️ Pause';
+        document.getElementById('game-view').classList.add('hidden');
+        document.getElementById('landing-page').classList.remove('hidden');
+        
+        // Reset upload zone
+        const uploadZone = document.getElementById('upload-zone');
+        uploadZone.innerHTML = `
+            <div class="upload-icon">🎵</div>
+            <h2>Drop your audio file here</h2>
+            <p>or click to browse</p>
+            <input type="file" id="audio-file" accept="audio/*" hidden />
+            <p class="supported-formats">MP3, WAV, OGG, M4A</p>
+        `;
+        
+        // Re-attach event listeners
+        this.setupEventListeners();
     }
-
-    setupCanvas() {
-        this.canvas.width = 800;
-        this.canvas.height = 600;
-
-        // Handle window resize
-        window.addEventListener('resize', () => {
-            this.canvas.width = Math.min(800, window.innerWidth - 40);
-            this.canvas.height = Math.min(600, window.innerHeight - 200);
-        });
+    
+    toggleSettings() {
+        const panel = document.getElementById('settings-panel');
+        panel.classList.toggle('hidden');
     }
-
+    
     generateMaze() {
-        // Simple maze generation using recursive backtracking
-        const width = 20;
-        const height = 15;
-        const cellSize = 30;
-
+        const { width, height } = this.world;
         this.maze = [];
+        
+        // Initialize empty maze
         for (let y = 0; y < height; y++) {
             this.maze[y] = [];
             for (let x = 0; x < width; x++) {
-                this.maze[y][x] = Math.random() > 0.7 ? 1 : 0; // 1 = wall, 0 = empty
+                this.maze[y][x] = 0;
             }
         }
-
-        // Ensure borders are walls
+        
+        // Add border walls
         for (let x = 0; x < width; x++) {
             this.maze[0][x] = 1;
             this.maze[height - 1][x] = 1;
@@ -352,122 +272,203 @@ class SatisfyingBalls {
             this.maze[y][0] = 1;
             this.maze[y][width - 1] = 1;
         }
-
-        // Ensure start and end are clear
-        this.maze[1][1] = 0;
-        this.maze[height - 2][width - 2] = 0;
+        
+        // Generate random walls with corridors
+        for (let y = 2; y < height - 2; y += 3) {
+            for (let x = 2; x < width - 2; x += 3) {
+                // Create cross patterns and random walls
+                if (Math.random() > 0.3) {
+                    this.maze[y][x] = 1;
+                    
+                    // Extend in random directions
+                    const directions = [
+                        [0, -1], [0, 1], [-1, 0], [1, 0]
+                    ];
+                    
+                    const numExtensions = Math.floor(Math.random() * 3) + 1;
+                    for (let i = 0; i < numExtensions; i++) {
+                        const dir = directions[Math.floor(Math.random() * directions.length)];
+                        const nx = x + dir[0];
+                        const ny = y + dir[1];
+                        
+                        if (nx > 0 && nx < width - 1 && ny > 0 && ny < height - 1) {
+                            this.maze[ny][nx] = 1;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Ensure starting area is clear
+        for (let y = 1; y < 5; y++) {
+            for (let x = 1; x < 5; x++) {
+                this.maze[y][x] = 0;
+            }
+        }
     }
-
+    
     resetBall() {
-        this.ball.x = 50;
-        this.ball.y = 50;
+        this.ball.x = this.world.cellSize * 2.5;
+        this.ball.y = this.world.cellSize * 2.5;
         this.ball.vx = 0;
         this.ball.vy = 0;
+        this.ball.trail = [];
     }
-
+    
+    togglePlayback() {
+        const btn = document.getElementById('play-pause');
+        
+        if (this.isPlaying) {
+            this.stopAudio();
+            btn.textContent = '▶';
+        } else {
+            this.playAudio();
+            btn.textContent = '⏸';
+        }
+    }
+    
+    playAudio() {
+        if (!this.audioBuffer || this.isPlaying) return;
+        
+        this.source = this.audioContext.createBufferSource();
+        this.source.buffer = this.audioBuffer;
+        this.source.connect(this.analyser);
+        this.source.start(0);
+        this.isPlaying = true;
+        
+        // Auto-stop when finished
+        this.source.onended = () => {
+            this.isPlaying = false;
+            document.getElementById('play-pause').textContent = '▶';
+        };
+    }
+    
+    stopAudio() {
+        if (this.source) {
+            this.source.stop();
+            this.source = null;
+        }
+        this.isPlaying = false;
+    }
+    
     detectBeat() {
-        if (!this.analyser) return false;
-
+        if (!this.analyser || !this.isPlaying) return false;
+        
+        const now = Date.now();
+        if (now - this.lastBeatTime < this.beatCooldown) return false;
+        
         const bufferLength = this.analyser.frequencyBinCount;
         const dataArray = new Uint8Array(bufferLength);
         this.analyser.getByteFrequencyData(dataArray);
-
-        // Calculate average energy in low frequencies (bass)
+        
+        // Focus on bass frequencies
         let sum = 0;
-        const bassRange = Math.floor(bufferLength * 0.1); // First 10% of frequencies
-
+        const bassRange = Math.floor(bufferLength * 0.15);
+        
         for (let i = 0; i < bassRange; i++) {
             sum += dataArray[i];
         }
-
+        
         const average = sum / bassRange;
-
-        // Keep history for beat detection
+        
         this.beatHistory.push(average);
-        if (this.beatHistory.length > 10) {
+        if (this.beatHistory.length > 20) {
             this.beatHistory.shift();
         }
-
-        // Detect beat if current energy is significantly higher than average
-        const historyAvg = this.beatHistory.reduce((a, b) => a + b) / this.beatHistory.length;
-        const beatDetected = average > historyAvg * this.beatThreshold;
-
+        
+        const historyAvg = this.beatHistory.reduce((a, b) => a + b, 0) / this.beatHistory.length;
+        const beatDetected = average > historyAvg * this.beatThreshold && average > 30;
+        
+        if (beatDetected) {
+            this.lastBeatTime = now;
+        }
+        
         return beatDetected;
     }
-
+    
     updateBall() {
         const beatDetected = this.detectBeat();
-
-        // Update ball trail
+        const speedMult = this.settings.physicsSpeed;
+        
+        // Beat-based impulse
+        if (beatDetected) {
+            const force = 3 * this.settings.beatSensitivity;
+            const angle = Math.random() * Math.PI * 2;
+            this.ball.vx += Math.cos(angle) * force * speedMult;
+            this.ball.vy += Math.sin(angle) * force * speedMult;
+            
+            // Visual effects
+            this.ball.color = this.colors[Math.floor(Math.random() * this.colors.length)];
+            this.ball.glowIntensity = 1;
+            this.createBeatParticles();
+        }
+        
+        // Gentle gravity
+        this.ball.vy += 0.15 * speedMult;
+        
+        // Friction (for that slow, satisfying feel)
+        this.ball.vx *= 0.985;
+        this.ball.vy *= 0.985;
+        
+        // Update position
+        this.ball.x += this.ball.vx * speedMult;
+        this.ball.y += this.ball.vy * speedMult;
+        
+        // Collision detection
+        this.handleCollisions();
+        
+        // Update trail
         this.ball.trail.push({ x: this.ball.x, y: this.ball.y, alpha: 1 });
-        if (this.ball.trail.length > 15) {
+        if (this.ball.trail.length > this.ball.trailLength) {
             this.ball.trail.shift();
         }
-
-        // Update trail alpha
-        this.ball.trail.forEach((point, index) => {
-            point.alpha = index / this.ball.trail.length;
+        
+        // Fade trail
+        this.ball.trail.forEach((point, i) => {
+            point.alpha = i / this.ball.trail.length;
         });
-
-        // Apply beat-based force
-        if (beatDetected) {
-            const force = 5 * this.sensitivity;
-            const angle = Math.random() * Math.PI * 2;
-            this.ball.vx += Math.cos(angle) * force;
-            this.ball.vy += Math.sin(angle) * force;
-
-            // Create beat particles
-            this.createBeatParticles();
-
-            // Change ball color on beat
-            this.ball.color = this.colors[Math.floor(Math.random() * this.colors.length)];
-
-            // Increase glow
-            this.ball.glowIntensity = 1;
-        }
-
-        // Gradually reduce glow
-        this.ball.glowIntensity *= 0.95;
-
-        // Apply gravity
-        this.ball.vy += 0.3;
-
-        // Apply friction
-        this.ball.vx *= 0.99;
-        this.ball.vy *= 0.99;
-
-        // Update position
-        this.ball.x += this.ball.vx;
-        this.ball.y += this.ball.vy;
-
-        // Collision detection with maze walls
-        const cellSize = 30;
-        const ballGridX = Math.floor(this.ball.x / cellSize);
-        const ballGridY = Math.floor(this.ball.y / cellSize);
-
-        // Check surrounding cells for collisions
+        
+        // Fade glow
+        this.ball.glowIntensity *= 0.92;
+    }
+    
+    handleCollisions() {
+        const cellSize = this.world.cellSize;
+        const gridX = Math.floor(this.ball.x / cellSize);
+        const gridY = Math.floor(this.ball.y / cellSize);
+        
+        // Check surrounding cells
         for (let dy = -1; dy <= 1; dy++) {
             for (let dx = -1; dx <= 1; dx++) {
-                const checkX = ballGridX + dx;
-                const checkY = ballGridY + dy;
-
-                if (checkX >= 0 && checkX < 20 && checkY >= 0 && checkY < 15) {
+                const checkX = gridX + dx;
+                const checkY = gridY + dy;
+                
+                if (checkX >= 0 && checkX < this.world.width &&
+                    checkY >= 0 && checkY < this.world.height) {
+                    
                     if (this.maze[checkY][checkX] === 1) {
                         const wallLeft = checkX * cellSize;
                         const wallRight = (checkX + 1) * cellSize;
                         const wallTop = checkY * cellSize;
                         const wallBottom = (checkY + 1) * cellSize;
-
-                        // Check collision with this wall
+                        
+                        // Circle-rectangle collision
                         if (this.ball.x + this.ball.radius > wallLeft &&
                             this.ball.x - this.ball.radius < wallRight &&
                             this.ball.y + this.ball.radius > wallTop &&
                             this.ball.y - this.ball.radius < wallBottom) {
-
-                            // Determine which side of the wall we hit
-                            const overlapX = Math.min(this.ball.x + this.ball.radius - wallLeft, wallRight - (this.ball.x - this.ball.radius));
-                            const overlapY = Math.min(this.ball.y + this.ball.radius - wallTop, wallBottom - (this.ball.y - this.ball.radius));
-
+                            
+                            // Calculate overlap
+                            const overlapX = Math.min(
+                                this.ball.x + this.ball.radius - wallLeft,
+                                wallRight - (this.ball.x - this.ball.radius)
+                            );
+                            const overlapY = Math.min(
+                                this.ball.y + this.ball.radius - wallTop,
+                                wallBottom - (this.ball.y - this.ball.radius)
+                            );
+                            
+                            // Resolve collision
                             if (overlapX < overlapY) {
                                 // Horizontal collision
                                 if (this.ball.x < wallLeft + cellSize / 2) {
@@ -475,7 +476,7 @@ class SatisfyingBalls {
                                 } else {
                                     this.ball.x = wallRight + this.ball.radius;
                                 }
-                                this.ball.vx *= -0.8;
+                                this.ball.vx *= -0.7;
                             } else {
                                 // Vertical collision
                                 if (this.ball.y < wallTop + cellSize / 2) {
@@ -483,135 +484,154 @@ class SatisfyingBalls {
                                 } else {
                                     this.ball.y = wallBottom + this.ball.radius;
                                 }
-                                this.ball.vy *= -0.8;
+                                this.ball.vy *= -0.7;
                             }
                         }
                     }
                 }
             }
         }
-
-        // Bounce off canvas edges
-        if (this.ball.x - this.ball.radius < 0) {
-            this.ball.x = this.ball.radius;
-            this.ball.vx *= -0.8;
-        }
-        if (this.ball.x + this.ball.radius > this.canvas.width) {
-            this.ball.x = this.canvas.width - this.ball.radius;
-            this.ball.vx *= -0.8;
-        }
-        if (this.ball.y - this.ball.radius < 0) {
-            this.ball.y = this.ball.radius;
-            this.ball.vy *= -0.8;
-        }
-        if (this.ball.y + this.ball.radius > this.canvas.height) {
-            this.ball.y = this.canvas.height - this.ball.radius;
-            this.ball.vy *= -0.8;
+    }
+    
+    createBeatParticles() {
+        for (let i = 0; i < 6; i++) {
+            const angle = (i / 6) * Math.PI * 2;
+            const speed = 2 + Math.random() * 3;
+            this.particles.push({
+                x: this.ball.x,
+                y: this.ball.y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                life: 1,
+                color: this.ball.color,
+                size: 3 + Math.random() * 4
+            });
         }
     }
-
+    
+    updateParticles() {
+        this.particles = this.particles.filter(p => {
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vy += 0.15; // gravity
+            p.vx *= 0.97;
+            p.life -= 0.025;
+            return p.life > 0;
+        });
+    }
+    
+    updateCamera() {
+        // Smooth camera follow
+        const targetX = this.ball.x;
+        const targetY = this.ball.y;
+        
+        this.camera.x += (targetX - this.camera.x) * this.camera.smoothing;
+        this.camera.y += (targetY - this.camera.y) * this.camera.smoothing;
+    }
+    
     draw() {
-        // Clear canvas with gradient background
-        const gradient = this.ctx.createRadialGradient(
-            this.canvas.width / 2, this.canvas.height / 2, 0,
-            this.canvas.width / 2, this.canvas.height / 2, Math.max(this.canvas.width, this.canvas.height)
-        );
-        gradient.addColorStop(0, '#1a1a2e');
-        gradient.addColorStop(1, '#0f0f23');
-        this.ctx.fillStyle = gradient;
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-
-        // Draw maze with some glow
-        const cellSize = Math.min(this.canvas.width / 20, this.canvas.height / 15);
-        this.ctx.shadowColor = '#333';
-        this.ctx.shadowBlur = 5;
-        this.ctx.fillStyle = '#2a2a3a';
-
-        for (let y = 0; y < this.maze.length; y++) {
-            for (let x = 0; x < this.maze[y].length; x++) {
+        const ctx = this.ctx;
+        const { width, height } = this.canvas;
+        
+        // Clear with dark background
+        ctx.fillStyle = '#0f0f1e';
+        ctx.fillRect(0, 0, width, height);
+        
+        // Save context for camera transform
+        ctx.save();
+        
+        // Apply camera transform
+        ctx.translate(width / 2, height / 2);
+        ctx.scale(this.camera.zoom, this.camera.zoom);
+        ctx.translate(-this.camera.x, -this.camera.y);
+        
+        // Calculate visible area
+        const visibleLeft = this.camera.x - (width / 2 / this.camera.zoom);
+        const visibleRight = this.camera.x + (width / 2 / this.camera.zoom);
+        const visibleTop = this.camera.y - (height / 2 / this.camera.zoom);
+        const visibleBottom = this.camera.y + (height / 2 / this.camera.zoom);
+        
+        const cellSize = this.world.cellSize;
+        const startX = Math.max(0, Math.floor(visibleLeft / cellSize));
+        const endX = Math.min(this.world.width, Math.ceil(visibleRight / cellSize));
+        const startY = Math.max(0, Math.floor(visibleTop / cellSize));
+        const endY = Math.min(this.world.height, Math.ceil(visibleBottom / cellSize));
+        
+        // Draw maze (only visible cells)
+        ctx.fillStyle = '#1a1a2e';
+        ctx.strokeStyle = '#2a2a3e';
+        ctx.lineWidth = 1;
+        
+        for (let y = startY; y < endY; y++) {
+            for (let x = startX; x < endX; x++) {
                 if (this.maze[y][x] === 1) {
-                    this.ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+                    ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+                    ctx.strokeRect(x * cellSize, y * cellSize, cellSize, cellSize);
                 }
             }
         }
-
-        this.ctx.shadowBlur = 0;
-
-        // Draw beat particles
-        this.beatParticles.forEach(particle => {
-            this.ctx.globalAlpha = particle.life;
-            this.ctx.beginPath();
-            this.ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
-            this.ctx.fillStyle = particle.color;
-            this.ctx.fill();
+        
+        // Draw particles
+        this.particles.forEach(p => {
+            ctx.globalAlpha = p.life;
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            ctx.fill();
         });
-        this.ctx.globalAlpha = 1;
-
+        ctx.globalAlpha = 1;
+        
         // Draw ball trail
-        this.ball.trail.forEach((point, index) => {
-            const alpha = point.alpha * 0.5;
-            this.ctx.globalAlpha = alpha;
-            this.ctx.beginPath();
-            this.ctx.arc(point.x, point.y, this.ball.radius * (0.3 + alpha * 0.7), 0, Math.PI * 2);
-            this.ctx.fillStyle = this.ball.color;
-            this.ctx.fill();
+        this.ball.trail.forEach((point, i) => {
+            ctx.globalAlpha = point.alpha * 0.4;
+            ctx.fillStyle = this.ball.color;
+            ctx.beginPath();
+            ctx.arc(point.x, point.y, this.ball.radius * 0.7, 0, Math.PI * 2);
+            ctx.fill();
         });
-        this.ctx.globalAlpha = 1;
-
-        // Draw ball with dynamic glow
-        const glowAmount = 10 + this.ball.glowIntensity * 30;
-        this.ctx.shadowColor = this.ball.color;
-        this.ctx.shadowBlur = glowAmount;
-
-        // Outer glow ring
-        this.ctx.beginPath();
-        this.ctx.arc(this.ball.x, this.ball.y, this.ball.radius + glowAmount * 0.3, 0, Math.PI * 2);
-        this.ctx.fillStyle = this.ball.color;
-        this.ctx.globalAlpha = 0.3;
-        this.ctx.fill();
-        this.ctx.globalAlpha = 1;
-
+        ctx.globalAlpha = 1;
+        
+        // Draw ball with glow
+        const glowSize = 15 + this.ball.glowIntensity * 30;
+        ctx.shadowColor = this.ball.color;
+        ctx.shadowBlur = glowSize;
+        
+        // Outer glow
+        ctx.globalAlpha = 0.3;
+        ctx.fillStyle = this.ball.color;
+        ctx.beginPath();
+        ctx.arc(this.ball.x, this.ball.y, this.ball.radius + glowSize * 0.4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        
         // Main ball
-        this.ctx.beginPath();
-        this.ctx.arc(this.ball.x, this.ball.y, this.ball.radius, 0, Math.PI * 2);
-        this.ctx.fillStyle = this.ball.color;
-        this.ctx.fill();
-
-        // Inner highlight
-        this.ctx.shadowBlur = 0;
-        this.ctx.beginPath();
-        this.ctx.arc(this.ball.x - 3, this.ball.y - 3, this.ball.radius * 0.4, 0, Math.PI * 2);
-        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-        this.ctx.fill();
-
-        // Beat pulse effect
-        if (this.isPlaying && this.detectBeat()) {
-            this.ctx.strokeStyle = '#fff';
-            this.ctx.lineWidth = 2;
-            this.ctx.shadowColor = '#fff';
-            this.ctx.shadowBlur = 10;
-
-            for (let i = 0; i < 3; i++) {
-                setTimeout(() => {
-                    this.ctx.beginPath();
-                    this.ctx.arc(this.ball.x, this.ball.y, this.ball.radius + 10 + i * 5, 0, Math.PI * 2);
-                    this.ctx.stroke();
-                }, i * 50);
-            }
-
-            this.ctx.shadowBlur = 0;
-        }
+        ctx.fillStyle = this.ball.color;
+        ctx.beginPath();
+        ctx.arc(this.ball.x, this.ball.y, this.ball.radius, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Highlight
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.beginPath();
+        ctx.arc(this.ball.x - 4, this.ball.y - 4, this.ball.radius * 0.3, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Restore context
+        ctx.restore();
     }
-
+    
     animate() {
         this.updateBall();
         this.updateParticles();
+        this.updateCamera();
         this.draw();
+        
         requestAnimationFrame(() => this.animate());
     }
 }
 
-// Initialize the application when the page loads
+// Initialize
 document.addEventListener('DOMContentLoaded', () => {
     new SatisfyingBalls();
 });
