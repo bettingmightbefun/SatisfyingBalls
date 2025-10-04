@@ -55,14 +55,35 @@ The application uses frequency domain analysis to detect beats:
 
 ## 🏗️ Architecture
 
+The codebase is organized into modular ES6 modules for maintainability and extensibility:
+
 ```
 SatisfyingBalls/
 ├── index.html          # Main HTML structure
 ├── styles.css          # Styling and responsive design
-├── script.js           # Core application logic
 ├── package.json        # Project configuration
-└── README.md          # This file
+├── script.js           # Legacy monolithic code (deprecated)
+├── src/                # Modular source code
+│   ├── main.js         # Application entry point
+│   ├── App.js          # Main coordinator
+│   ├── AudioManager.js # Audio handling & Web Audio API
+│   ├── BeatDetector.js # Beat detection algorithm
+│   ├── MazeGenerator.js# Procedural maze generation
+│   ├── PhysicsEngine.js# Ball physics & collisions
+│   ├── ParticleSystem.js# Visual particle effects
+│   └── Renderer.js     # Canvas rendering
+└── README.md           # This file
 ```
+
+### Module Overview
+
+- **AudioManager**: Handles audio context, file loading, playback, and volume control via GainNode
+- **BeatDetector**: Energy-based beat detection with configurable sensitivity
+- **MazeGenerator**: Recursive backtracking algorithm for connected mazes
+- **PhysicsEngine**: Gravity, friction, and collision detection
+- **ParticleSystem**: Burst particles and trail effects
+- **Renderer**: All canvas drawing operations with glow effects
+- **App**: Coordinates all modules and handles the animation loop
 
 ## 🎨 Visual Effects
 
