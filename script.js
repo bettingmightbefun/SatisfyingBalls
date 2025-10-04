@@ -43,7 +43,8 @@ class SatisfyingBalls {
             y: 100,
             vx: 0,
             vy: 0,
-            radius: 15,
+            radius: 10,
+            baseSpeed: 2.5, // DVD logo constant speed
             color: '#4ecdc4',
             trail: [],
             trailLength: 15,
@@ -55,7 +56,6 @@ class SatisfyingBalls {
             beatSensitivity: 1.2,
             physicsSpeed: 0.6,
             cameraZoom: 1.5,
-            ballSize: 15,
             trailLength: 15
         };
         
@@ -138,7 +138,6 @@ class SatisfyingBalls {
     setupSettingsListeners() {
         const sliders = [
             { id: 'zoom-slider', value: 'zoom-value', suffix: 'x', prop: 'cameraZoom' },
-            { id: 'size-slider', value: 'size-value', suffix: 'px', prop: 'ballSize' },
             { id: 'sensitivity-slider', value: 'sensitivity-value', suffix: 'x', prop: 'beatSensitivity' },
             { id: 'speed-slider', value: 'speed-value', suffix: 'x', prop: 'physicsSpeed' },
             { id: 'trail-slider', value: 'trail-value', suffix: '', prop: 'trailLength' }
@@ -148,18 +147,19 @@ class SatisfyingBalls {
             const input = document.getElementById(slider.id);
             const display = document.getElementById(slider.value);
             
-            input.addEventListener('input', (e) => {
-                const val = parseFloat(e.target.value);
-                display.textContent = val + slider.suffix;
-                this.settings[slider.prop] = val;
-                this.applySettings();
-            });
+            if (input && display) {
+                input.addEventListener('input', (e) => {
+                    const val = parseFloat(e.target.value);
+                    display.textContent = val + slider.suffix;
+                    this.settings[slider.prop] = val;
+                    this.applySettings();
+                });
+            }
         });
     }
     
     applySettings() {
         this.camera.zoom = this.settings.cameraZoom;
-        this.ball.radius = this.settings.ballSize;
         this.ball.trailLength = this.settings.trailLength;
         this.beatThreshold = 1.3 * this.settings.beatSensitivity;
     }
@@ -310,8 +310,12 @@ class SatisfyingBalls {
     resetBall() {
         this.ball.x = this.world.cellSize * 2.5;
         this.ball.y = this.world.cellSize * 2.5;
-        this.ball.vx = 0;
-        this.ball.vy = 0;
+        
+        // DVD logo style: constant speed in a random direction
+        const angle = Math.random() * Math.PI * 2;
+        this.ball.vx = Math.cos(angle) * this.ball.baseSpeed;
+        this.ball.vy = Math.sin(angle) * this.ball.baseSpeed;
+        
         this.ball.trail = [];
     }
     
@@ -390,12 +394,28 @@ class SatisfyingBalls {
         const beatDetected = this.detectBeat();
         const speedMult = this.settings.physicsSpeed;
         
-        // Beat-based impulse
-        if (beatDetected) {
-            const force = 3 * this.settings.beatSensitivity;
+        // DVD LOGO PHYSICS: Maintain constant speed
+        const currentSpeed = Math.sqrt(this.ball.vx * this.ball.vx + this.ball.vy * this.ball.vy);
+        if (currentSpeed > 0.1) {
+            // Normalize to maintain constant speed
+            const targetSpeed = this.ball.baseSpeed * speedMult;
+            this.ball.vx = (this.ball.vx / currentSpeed) * targetSpeed;
+            this.ball.vy = (this.ball.vy / currentSpeed) * targetSpeed;
+        } else {
+            // If ball somehow stopped, restart it
             const angle = Math.random() * Math.PI * 2;
-            this.ball.vx += Math.cos(angle) * force * speedMult;
-            this.ball.vy += Math.sin(angle) * force * speedMult;
+            this.ball.vx = Math.cos(angle) * this.ball.baseSpeed * speedMult;
+            this.ball.vy = Math.sin(angle) * this.ball.baseSpeed * speedMult;
+        }
+        
+        // AUDIO CHAOS: On beat, add random complexity!
+        if (beatDetected) {
+            // Random direction change (chaos mode!)
+            const chaosAngle = Math.random() * Math.PI * 2;
+            const chaosMagnitude = 2 * this.settings.beatSensitivity;
+            
+            this.ball.vx += Math.cos(chaosAngle) * chaosMagnitude;
+            this.ball.vy += Math.sin(chaosAngle) * chaosMagnitude;
             
             // Visual effects
             this.ball.color = this.colors[Math.floor(Math.random() * this.colors.length)];
@@ -403,16 +423,9 @@ class SatisfyingBalls {
             this.createBeatParticles();
         }
         
-        // Gentle gravity
-        this.ball.vy += 0.15 * speedMult;
-        
-        // Friction (for that slow, satisfying feel)
-        this.ball.vx *= 0.985;
-        this.ball.vy *= 0.985;
-        
-        // Update position
-        this.ball.x += this.ball.vx * speedMult;
-        this.ball.y += this.ball.vy * speedMult;
+        // Update position (DVD logo: straight line movement)
+        this.ball.x += this.ball.vx;
+        this.ball.y += this.ball.vy;
         
         // Collision detection
         this.handleCollisions();
@@ -480,7 +493,7 @@ class SatisfyingBalls {
                                 } else {
                                     this.ball.x = wallRight + this.ball.radius;
                                 }
-                                this.ball.vx *= -0.7;
+                                this.ball.vx *= -1.0; // Perfect bounce like DVD logo
                             } else {
                                 // Vertical collision
                                 if (this.ball.y < wallTop + cellSize / 2) {
@@ -488,7 +501,7 @@ class SatisfyingBalls {
                                 } else {
                                     this.ball.y = wallBottom + this.ball.radius;
                                 }
-                                this.ball.vy *= -0.7;
+                                this.ball.vy *= -1.0; // Perfect bounce like DVD logo
                             }
                         }
                     }
